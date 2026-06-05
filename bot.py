@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
+from memory import clear_history, get_history, init_db, save_history
+
 from dotenv import load_dotenv
 from openai import OpenAI
 from telegram import Update
@@ -62,14 +64,6 @@ TEXT_EXTENSIONS = {
 }
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 SUPPORTED_OUTPUT_FORMATS = {"txt", "md", "docx", "xlsx", "csv", "json"}
-
-
-def get_history(context: ContextTypes.DEFAULT_TYPE) -> List[Dict[str, str]]:
-    return context.user_data.get("history", [])
-
-
-def save_history(context: ContextTypes.DEFAULT_TYPE, history: List[Dict[str, str]]) -> None:
-    context.user_data["history"] = history[-MAX_HISTORY_MESSAGES:]
 
 
 def split_text(text: str, limit: int = 4000) -> List[str]:
@@ -357,10 +351,10 @@ def looks_like_file_generation_request(text: str) -> bool:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "Привет! *пукнул* Напиши сообщение, загрузи файл или попроси создать файл.\n\n"
+        "Привет! Напиши сообщение, загрузи файл или попроси создать файл.\n\n"
         "Команды:\n"
-        "/start — сказать здарова\n"
-        "/reset — очистить историю диалога (чтобы не спалиться)\n"
+        "/start — показать приветствие\n"
+        "/reset — очистить историю диалога\n/history — показать размер сохранённой истории\n"
         "/file docx Название | запрос — создать файл\n\n"
         "Файлы на вход: PDF, DOCX, XLSX, TXT, CSV, JSON, MD, изображения JPG/PNG/WebP.\n"
         "Файлы на выход: TXT, MD, DOCX, XLSX, CSV, JSON."
@@ -368,8 +362,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    context.user_data["history"] = []
+    clear_history(update.effective_chat.id)
     await update.message.reply_text("История диалога очищена.")
+
+
+async def history_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    history = get_history(update.effective_chat.id)
+    turns = len(history) // 2
+    await update.message.reply_text(f"В памяти этого чата: {len(history)} сообщений, примерно {turns} диалоговых ходов. /reset — очистить.")
 
 
 async def file_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -432,13 +432,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
 
     await update.message.chat.send_action(action=ChatAction.TYPING)
-    history = get_history(context)
+    chat_id = update.effective_chat.id
+    history = get_history(chat_id)
 
     try:
         answer = ask_model_with_text(user_text, history)
         history.append({"role": "user", "content": user_text})
         history.append({"role": "assistant", "content": answer})
-        save_history(context, history)
+        save_history(chat_id, history[-MAX_HISTORY_MESSAGES:])
         await reply_long(update, answer)
     except Exception as exc:
         logger.exception("Ошибка при обращении к AI endpoint")
@@ -469,6 +470,11 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if ext in IMAGE_EXTENSIONS:
             await update.message.chat.send_action(action=ChatAction.TYPING)
             answer = ask_model_with_image(caption, file_path)
+            chat_id = update.effective_chat.id
+            history = get_history(chat_id)
+            history.append({"role": "user", "content": f"Пользователь загрузил изображение {safe_name}. Инструкция: {caption}"})
+            history.append({"role": "assistant", "content": answer})
+            save_history(chat_id, history[-MAX_HISTORY_MESSAGES:])
             await reply_long(update, answer)
             return
 
@@ -486,7 +492,20 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"{extracted_text}\n```"
         )
         await update.message.chat.send_action(action=ChatAction.TYPING)
-        answer = ask_model_with_text(prompt, get_history(context))
+        chat_id = update.effective_chat.id
+        history = get_history(chat_id)
+        answer = ask_model_with_text(prompt, history)
+
+        # Сохраняем краткий контекст о файле в историю, чтобы следующий вопрос мог ссылаться на него
+        file_context_for_memory = (
+            f"Пользователь загрузил файл {safe_name}. "
+            f"Инструкция: {caption}. "
+            f"Извлечённый текст файла, начало:\n{extracted_text[:8000]}"
+        )
+        history.append({"role": "user", "content": file_context_for_memory})
+        history.append({"role": "assistant", "content": answer})
+        save_history(chat_id, history[-MAX_HISTORY_MESSAGES:])
+
         context.user_data["last_file"] = {"name": safe_name, "text": extracted_text}
         await reply_long(update, answer)
 
@@ -509,6 +528,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         tg_file = await context.bot.get_file(photo.file_id)
         await tg_file.download_to_drive(file_path)
         answer = ask_model_with_image(caption, file_path)
+        chat_id = update.effective_chat.id
+        history = get_history(chat_id)
+        history.append({"role": "user", "content": f"Пользователь загрузил фото. Инструкция: {caption}"})
+        history.append({"role": "assistant", "content": answer})
+        save_history(chat_id, history[-MAX_HISTORY_MESSAGES:])
         await reply_long(update, answer)
     except Exception as exc:
         logger.exception("Ошибка анализа изображения")
@@ -525,10 +549,12 @@ async def handle_non_supported(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 def main() -> None:
+    init_db()
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
+    app.add_handler(CommandHandler("history", history_info))
     app.add_handler(CommandHandler("file", file_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))

@@ -119,3 +119,24 @@ git push
 - Изображения работают только если endpoint поддерживает vision-вход.
 - XLSX создаётся через JSON-таблицу от модели. Если endpoint возвращает невалидный JSON, бот покажет ошибку и попросит повторить запрос.
 - PDF-генерация не включена намеренно: на хостингах часто нужны системные библиотеки. Надёжный базовый формат для документов — DOCX.
+
+
+## Persistent chat memory
+
+The bot stores chat history in SQLite. The database is created automatically on first start.
+
+Optional env variable:
+
+```env
+MEMORY_DB_PATH=bot_memory.db
+MAX_HISTORY_MESSAGES=20
+```
+
+Commands:
+
+```text
+/history - show current saved history size
+/reset - clear history for the current Telegram chat
+```
+
+Do not commit the generated `.db` file to GitHub. It is already ignored in `.gitignore`.
