@@ -1,102 +1,68 @@
-# Telegram AI Bot
+# Telegram AI Bot с обработкой файлов
 
-Базовый Telegram-бот на Python с подключением к OpenAI-Compatible endpoint.
+Бот работает через Telegram Bot API и OpenAI-Compatible endpoint.
+Поддерживает текстовые сообщения, документы и изображения.
 
-## Возможности
+## Поддерживаемые файлы
 
-- Ответы на текстовые сообщения в Telegram
-- Поддержка OpenAI-Compatible API через `OPENAI_BASE_URL`
-- История диалога для каждого пользователя
-- Команда `/reset` для очистки истории
-- Готовые файлы для публикации в GitHub и деплоя на хостинг
+- PDF
+- DOCX
+- XLSX / XLSM
+- TXT
+- MD
+- CSV
+- JSON
+- YAML / XML / HTML
+- файлы кода
+- JPG / PNG / WebP, если твой endpoint поддерживает vision
 
-## Файлы проекта
+## Установка локально
 
-```text
-bot.py              # основной код бота
-requirements.txt    # зависимости Python
-.env.example        # пример переменных окружения
-.gitignore          # исключения для Git
-Procfile            # команда запуска для хостингов Heroku-like
-runtime.txt         # версия Python
+```bash
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env
+python bot.py
 ```
 
 ## Переменные окружения
 
-На хостинге добавь переменные:
+Создай `.env` локально или добавь переменные в панели хостинга:
 
 ```env
-TELEGRAM_TOKEN=токен_из_BotFather
-OPENAI_API_KEY=ключ_от_твоего_endpoint
-OPENAI_BASE_URL=https://your-endpoint.com/v1
-OPENAI_MODEL=название_модели
-SYSTEM_PROMPT=Ты полезный Telegram-ассистент. Отвечай на русском языке, понятно и по делу.
-MAX_HISTORY_MESSAGES=20
+TELEGRAM_TOKEN=...
+OPENAI_API_KEY=...
+OPENAI_BASE_URL=https://your-custom-endpoint.com/v1
+OPENAI_MODEL=your-model-name
+MAX_FILE_CHARS=60000
 ```
 
-Важно: `.env` нельзя публиковать в GitHub. Для примера есть `.env.example`.
+## Запуск на хостинге
 
-## Локальный запуск
-
-```bash
-python -m venv venv
-```
-
-Windows:
-
-```bash
-venv\Scripts\activate
-```
-
-macOS/Linux:
-
-```bash
-source venv/bin/activate
-```
-
-Установка зависимостей:
-
-```bash
-pip install -r requirements.txt
-```
-
-Создай `.env` на основе `.env.example`:
-
-```bash
-cp .env.example .env
-```
-
-Запуск:
+Команда запуска:
 
 ```bash
 python bot.py
 ```
 
-## Публикация в GitHub
+Бот использует polling, поэтому публичный webhook-домен не нужен.
 
-```bash
-git init
-git add .
-git commit -m "Initial Telegram AI bot"
-git branch -M main
-git remote add origin https://github.com/USERNAME/REPOSITORY.git
-git push -u origin main
-```
+## Как пользоваться
 
-## Команда запуска на хостинге
+1. Напиши боту обычное сообщение.
+2. Загрузи файл.
+3. В подписи к файлу можно написать задачу, например:
+   - `Сделай краткое содержание`
+   - `Найди риски в договоре`
+   - `Вытащи все даты и суммы`
+   - `Проанализируй таблицу`
 
-Если Bothost просит команду запуска, используй:
+Если подписи нет, бот сам сделает краткий анализ файла.
 
-```bash
-python bot.py
-```
+## Ограничения
 
-Если хостинг читает `Procfile`, там уже указано:
-
-```Procfile
-worker: python bot.py
-```
-
-## Важно
-
-Бот работает через polling. Это проще для старта и обычно не требует webhook/домена.
+- Большие файлы обрезаются по `MAX_FILE_CHARS`.
+- PDF-сканы без текстового слоя не читаются без OCR.
+- Изображения работают только если твой OpenAI-Compatible endpoint поддерживает vision-вход.
+- Для больших баз документов лучше подключать RAG/векторную базу.
